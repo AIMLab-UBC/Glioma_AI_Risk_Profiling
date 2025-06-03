@@ -9,7 +9,7 @@ from collections import Counter
 
 seed=7
 
-labels=pd.read_csv("csv_files/lgggbm_surv_labels_v3.csv")
+labels=pd.read_csv("csv_files/labels.csv")
 labels = labels.drop_duplicates(['case_id']).copy()
 
 X=labels['case_id'].to_list()

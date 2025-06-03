@@ -1,11 +1,11 @@
-Official repository for:
-
-**Integrative AI profiling redefines risk in infiltrating gliomas**  
-_AUTHORS_  
-_JOURNAL_
-
-[📄 Paper ]()  
-
+Integrative AI profiling redefines risk in infiltrating gliomas
+===========
+<details>
+<summary>
+  <b>MIntegrative AI profiling redefines risk in infiltrating gliomas</b>, JOURNAL.
+  <a href="link" target="blank">[HTML]</a>
+  <br><em>Katherine Rich, Karina C. Martin, Thomas Roetzer-Pejrimovsky, Kira Tosefsky, Verena Goebeler, Agustina Conrerro, Lesley Hill, Pouya Ahmadvand, Crystal Ma, Hossein Farahani, Steven JM Jones, Michael Underhill, Adelheid Woehrer, Philipp F. Lange, Stephen Yip, Ali Bashashati</em></br>
+</summary>
 
 ---
 
@@ -68,6 +68,9 @@ cd survival_mil
 ./run.sh
 ```
 
+## Acknowledgements
+
+The survival MIL code is adapted from the [MCAT](https://github.com/mahmoodlab/MCAT) model.
 
 ## 📜 Citation
 

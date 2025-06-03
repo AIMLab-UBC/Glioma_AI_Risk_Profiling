@@ -30,7 +30,7 @@ for i in range(10):
 
 	hazards.append(hazard)
 
-with open(f'results_amil.csv', mode='w', newline='') as file:
+with open(f'results.csv', mode='w', newline='') as file:
 	writer = csv.writer(file)
 	writer.writerow(['Name', 'Hazard1', 'Hazard2', 'Hazard3', 'Hazard4', 'Hazard5'])
 	for i,f in enumerate(feat_files):
