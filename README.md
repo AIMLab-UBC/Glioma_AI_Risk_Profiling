@@ -27,16 +27,11 @@ Features should be structured in an h5 file. Sample survival data is included, a
 The directory is structured as follows:
 <pre lang="markdown">
     ├── r_scripts/   # R code for downstream genomic and survival analysis
-    │   ├── coxph/   
-    │       ├── multicox.R # R code for plotting the multivariate coxph forest plot
-    │       ├── tcga_val_multicoxph_cleaned.csv # example csv data
-    ├── ├── EnrichmentAnalysis.R           # Code for pathway enrichment analysis
     ├── ├── km_curves/
     │       ├── c_index_5fold.R # R code for computing 5 fold c-index w/ STD
     │       ├── c_index.R # R code for computing singular c-index
     │       ├── findMaxStat.R # R code for computing maxStat threshold
     │       ├── surv_plot.R # R code for plotting survival curve
-    ├── ├── proteomics.R           # R code for proteomic analysis
     ├── ├── TCGA_DE.R              # R code for differential expression analysis with TCGA data
     │   └── XeniumSeurat.R         # R code for analysis of Xenium data
     ├── survival_mil/   # python code for training MIL risk model
