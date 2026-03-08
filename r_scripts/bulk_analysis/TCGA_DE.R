@@ -16,12 +16,9 @@ library(clusterProfiler)
 library(org.Hs.eg.db)
 library(dplyr)
 
-
-BiocManager::install("TCGAWorkflow")
-BiocManager::install("TCGAWorkflowData")
-BiocManager::install("TCGAbiolinks",force = TRUE)
 GDCprojects = getGDCprojects()
 
+#get TCGA project summaries
 head(GDCprojects[c("project_id", "name")])
 TCGAbiolinks:::getProjectSummary("TCGA-LGG")
 TCGAbiolinks:::getProjectSummary("TCGA-GBM")
@@ -96,7 +93,7 @@ exp_gbm_preprocessed <- TCGAanalyze_Preprocessing(
   filename = "GBM_IlluminaHiSeq_RNASeqV2.png"
 )
 exp_preprocessed <- cbind(
-  exp_lgg_preprocessed, 
+  exp_lgg_preprocessed,
   exp_gbm_preprocessed
 )
 

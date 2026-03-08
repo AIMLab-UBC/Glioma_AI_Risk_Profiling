@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 
 
 class Generic_WSI_Survival_Dataset(Dataset):
+    #code adapted from https://github.com/mahmoodlab/MCAT/blob/master/datasets/dataset_survival.py
     def __init__(self,
         csv_path = 'dataset_csv/ccrcc_clean.csv', seed = 7, n_bins = 4, ignore=[], label_col = None, eps=1e-6):
 

@@ -62,7 +62,6 @@ class MILSurv(nn.Module):
 
         A, h_path = self.attention_net(data.squeeze())
         A = torch.transpose(A, 1, 0)
-        A_raw = A
         A = F.softmax(A, dim=1)
         h_path = torch.mm(A, h_path)
         h = self.rho(h_path).squeeze()

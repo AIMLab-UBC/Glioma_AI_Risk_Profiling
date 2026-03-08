@@ -14,6 +14,9 @@ from . import utils
 
 
 def nll_loss(hazards, S, Y, c, alpha=0.4, eps=1e-7):
+    #The negative log-likelihood loss function for the discrete time to event model (Zadeh and Schmid, 2020).
+    #Code from https://github.com/mahmoodlab/Patch-GCN/blob/master/utils/utils.py
+
     batch_size = len(Y)
     Y = Y.view(batch_size, 1)
     c = c.view(batch_size, 1).float()
