@@ -107,13 +107,13 @@ xenium_clustering.R runs the clustering pipeline, then projects to full dataset.
 
 For a full overview of the analysis, an HTML-rendered file (proteomicsAnalysis.html) has been provided. The following metadata is provided for each sample:
 
-o	sample: sample name
-o	oldNames: previous names used in Spectronaut
-o	patient: patient ID
-o	slide: slide identifier
-o	ROI: region of interest
-o	PatientLevelRisk: risk classification at patient level
-o	PatchLevelRisk: risk classification at patch level
+- sample: sample name
+- oldNames: previous names used in Spectronaut
+- patient: patient ID
+- slide: slide identifier
+- ROI: region of interest
+- PatientLevelRisk: risk classification at patient level
+- PatchLevelRisk: risk classification at patch level
 
 
 ## Acknowledgements
