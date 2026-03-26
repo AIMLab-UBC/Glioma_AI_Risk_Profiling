@@ -37,7 +37,20 @@ The directory is structured as follows:
     ├── ├── bulk_analysis/
     │       ├── TCGA_DE.R              # R code for differential expression analysis with TCGA data
     │       ├── enrichment_analysis.R  # R code for enrichment/pathway analysis with TCGA data
-    │       ├── volcano_plot.R         # R code for plotting volcano plot with TCGA data    
+    │       ├── volcano_plot.R         # R code for plotting volcano plot with TCGA data
+    ├── ├── proteomics/
+    │       ├── data/             # proteomics data folder
+    │           ├── GliomasStudy-152samples-rawData.csv   #Raw proteomics data for 152 glioma samples. Each row represents a protein ID, and each column corresponds to a specific sample (patch).
+    │           ├── GliomasStudy-HeLaStandards-rawData.csv # Raw proteomics data for 7 raw HeLa standard spanning the entire run. Each row represents a protein ID, and each column corresponds to a sample.
+    │           ├── loadingOrder.csv #File specifying the order in which samples were loaded and run in the mass spectrometer.
+    │           ├── metadata.xlsx #metadata file
+    │       ├── results/   #proteomics results folder
+    │           ├── data/  #imputed data folder
+    │               ├── dataFullyImputed-kNN_k=5.csv #Proteomics data after missing value imputation using kNN (k=5). The main columns contain protein intensity values, where additional “_imp” columns indicate whether the value was imputed (TRUE) or originally observed (FALSE).
+    │               ├── differentialAnalysisLimma_HRvsLRatPatchLevel.csv #Output of differential expression analysis (high-risk vs low-risk) at the patch level using limma. It includes protein IDs, log fold-changes, p-values before and after FDR correction, and an protein classification (Upregulated/Downregulated/Unchanged).
+    │               ├── differentialAnalysisLimma_HRvsLRatPatientLevel.csv #Output of differential expression analysis (high-risk vs low-risk) at the patient level using limma.
+    │       ├── proteomicsAnalysis.html #HTML-rendered version of proteomicsAnalysis.qmd.
+    │       ├── proteomicsAnalysis.qmd  #Quarto document containing the full analysis workflow: data cleaning, exploration, imputation, statistical and functional analysis.
     ├── ├── spatial_transcriptomics/
     │       ├── rctd.R              # R code for running rctd on xenium data
     │       ├── xenium_clustering.R   # R code for clustering xenium data
@@ -89,6 +102,18 @@ First need to run Baysor on Xenium data to improve segmentation results. If usin
 R scripts to run analysis of spatial transcriptomic analysis can be found in 'r_scripts/spatial_transcriptomics/'. First need to run rctd.R to load in Xenium data, threshold based on transcript count and get cell-type predictions using RCTD. Single-cell reference data can be created using method here: https://raw.githack.com/dmcable/RCTD/master/vignettes/spatial-transcriptomics.html with an applicable single-cell dataset.
 
 xenium_clustering.R runs the clustering pipeline, then projects to full dataset. Cluster markers are computed from full dataset. Cluster cell-types were identified using provided annotations from 10x website. Other tools such as enrichr (https://maayanlab.cloud/Enrichr/) or cellxgene (https://cellxgene.cziscience.com) can also be used.
+
+### 5. Proteomics
+
+For a full overview of the analysis, an HTML-rendered file (proteomicsAnalysis.html) has been provided. The following metadata is provided for each sample:
+
+o	sample: sample name
+o	oldNames: previous names used in Spectronaut
+o	patient: patient ID
+o	slide: slide identifier
+o	ROI: region of interest
+o	PatientLevelRisk: risk classification at patient level
+o	PatchLevelRisk: risk classification at patch level
 
 
 ## Acknowledgements
