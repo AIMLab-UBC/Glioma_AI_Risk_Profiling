@@ -1,0 +1,818 @@
+---
+title: "Data Analysis Report"
+subtitle: ""
+title-block-banner: "#f0f3f5"
+title-block-banner-color: "black"
+author: "Lange Lab"
+date: "`r Sys.Date()`"
+format:  
+  html:
+    theme: cosmo
+    code-fold: true
+    code-summary: "Code"
+    code-annotations: hover
+    toc: true
+    toc-location: left
+    toc-expand: true
+    toc-depth: 100
+    number-sections: true
+    fontsize: 11pt
+    mainfont: "Arial"
+    embed-resources: true
+editor: visual
+---
+
+# Overview
+
+This report provides a comprehensive overview of the data processing, quality control, and results for this project.
+
+-   **Interactive Sidebar**: Use the table of contents on the left to quickly navigate through sections.
+-   **Code**: All code used to generate the analyses is included in collapsible sections. You can expand them to inspect the code.
+-   **Figures**: All plots can be viewed in full-screen mode by right-clicking on the image and selecting "Open in a new tab".
+
+# Quality Control
+
+```{r setup, echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+startTime <- Sys.time()
+
+library(clusterProfiler)
+library(dplyr)
+library(forcats)
+library(ggplot2)
+library(limma)
+library(org.Hs.eg.db)
+library(patchwork)
+library(pheatmap)
+library(reshape2)
+
+####
+#Read Data & define regex
+####
+data <- read.csv(".\\data\\GliomasStudy-152samples-rawData.csv")
+metadata <- readxl::read_excel(".\\data\\metadata.xlsx")
+loadingOrder <-  read.csv(".\\data\\loadingOrder.csv")
+standards <- read.csv(".\\data\\GliomasStudy-HeLaStandards-rawData.csv")
+
+
+regexIDCols <- "^PG"
+regexConditions <- c("^Slide")
+titlesConditions <- c("GliomaSamples")
+ 
+regexOR <- paste(regexConditions, collapse = "|")
+
+knitr::opts_chunk$set(echo = FALSE)
+
+data <- as.data.frame(data)
+data <- data %>%
+  dplyr::select(matches(regexIDCols) | matches(regexOR)) 
+
+data <- data %>%
+  mutate(across(
+    c(PG.ProteinGroups, PG.Genes, PG.ProteinDescriptions),
+    ~ sub(";.*", "", .)
+  ))
+
+columnsToCheck <- grep(regexOR, colnames(data), value = TRUE)
+data <- data %>%
+  filter(!if_all(all_of(columnsToCheck), ~ is.na(.) | . == ""))
+
+if (!dir.exists("results")) {
+  dir.create("results")
+}
+
+if (!dir.exists("results//data")) {
+  dir.create("results//data")
+}
+
+if (!dir.exists("results//figures")) {
+  dir.create("results//figures")
+}
+
+```
+
+## Protein Filtering
+
+::: {.callout-note collapse="true"}
+# Filter
+
+Filter keeps proteins quantified in \>=10% replicates (\>= 15 samples).
+:::
+
+```{r reliableProteins, include=TRUE,  echo=TRUE, message=FALSE, warning=FALSE}
+
+sampleCols <- grep(regexOR, colnames(data))
+
+minSamples <- ceiling(length(sampleCols) * 0.10)
+
+filteredData <- data[rowSums(!is.na(data[, sampleCols])) >= minSamples, ]
+
+cat("Proteins passing 10% filter:", 
+    nrow(filteredData), "out of", nrow(data),
+    sprintf("(%.1f%%)", 100 * nrow(filteredData)/nrow(data)), "\n")
+
+data <- filteredData
+
+```
+
+## Protein Identification per Sample
+
+```{r barplotProtIDPrep, fig.width= 8, fig.height=3}
+numericCols <- grep(regexOR, colnames(data))
+
+dataCount <- data.frame(
+  Sample = colnames(data)[numericCols],
+  Count = colSums(!is.na(data[, numericCols])))
+
+dataCount <- merge(dataCount, metadata, by="Sample")
+dataCount$Sample <- factor(dataCount$Sample, levels = loadingOrder$Sample)
+median <- median(dataCount$Count)
+barplot <- ggplot(dataCount, aes(x = Sample, y = Count, fill = PatientLevelRisk)) +
+  geom_bar(stat = "identity") +
+    scale_fill_manual(values = c(
+    "HighRisk" = "#023047",
+    "LowRisk" = "#2c7da0"
+  )) +
+  geom_hline(yintercept = median(dataCount$Count),
+             linetype = "dashed", color = "black") +
+  labs(title = "Identified Proteins by Sample",
+       x = "Sample",
+       y = "Number of Identified Proteins") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank())
+
+# pdf(".//results//figures//barplot_ProtID.pdf", height = 3, width = 8)
+# barplot
+# dev.off()
+
+barplot
+
+
+```
+
+## Intensity Distribution
+
+```{r violins, echo=TRUE, message=FALSE, warning=FALSE, fig.width=9, fig.height=4}
+longData <- melt(
+  data,
+  id.vars = grep(regexIDCols, colnames(data), value = TRUE),
+  measure.vars = grep("^Slide", colnames(data), value = TRUE),
+  variable.name = "Sample",
+  value.name = "Intensity"
+)
+longData <- merge(longData, metadata, by="Sample")
+
+
+medians <- longData %>%
+  filter(!is.na(log10(Intensity))) %>%
+  group_by(PatientLevelRisk) %>%
+  summarize(medianLine = median(log10(Intensity), na.rm = TRUE))
+
+violinPlot <- ggplot(longData, aes(x = Sample, y = log10(Intensity), fill = PatientLevelRisk)) +
+  geom_violin(alpha = 1, color = "black", scale = "width", width = 0.8) +
+  scale_fill_manual(values = c(
+    "HighRisk" = "#023047",
+    "LowRisk" = "#2c7da0"
+  )) +
+  labs(title = "Protein Intensity Distribution",
+       x = "Sample", y = "Protein Intensity (log10)") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        strip.text = element_text(size = 12),
+          legend.position = "top" ) +
+  geom_hline(data = medians, aes(yintercept = medianLine),
+             linetype = "dashed", color = "black", size = 0.5) +
+  facet_grid(~PatientLevelRisk, space = "free_x", scales = "free_x")
+
+# pdf(".//results//figures//violinPlot_protDistribution.pdf", height = 3, width = 9)
+# violinPlot
+# dev.off()
+
+violinPlot
+
+```
+
+## Coefficient of Variation (CV)
+
+```{r CV, echo=TRUE, message=FALSE, warning=FALSE, fig.width=1.5, fig.height=4}
+
+cvResults <- data.frame(PG.ProteinGroups = standards$PG.ProteinGroups)
+matchedCols <- grep("HeLa", colnames(standards))
+standards <- standards[, matchedCols]
+
+cvResults[["HeLa-Standards"]] <- apply(
+      standards, 1, function(x) sd(x, na.rm = TRUE) / mean(x, na.rm = TRUE) * 100)
+
+cvResults <- na.omit(cvResults)
+
+medianCV <- median(cvResults$`HeLa-Standards`, na.rm = TRUE)
+
+cvPlot <- ggplot(cvResults, aes(x = "", y = `HeLa-Standards`)) +
+    geom_violin(fill = "gray90", draw_quantiles = 0.5, adjust = 1.5) +
+    annotate("text",
+             x = 0.8,
+             y = medianCV*1.2,
+             label = paste0(round(medianCV, 1), "%"),
+             hjust = 0,
+             size = 3.5) +
+    labs(
+      y = "Coefficient of Variation (%)",
+      x = paste0("HeLa standards \n (n samples=", ncol(standards),")")) +
+  theme_classic(base_size = 11) +
+  theme(axis.ticks.x = element_blank())
+
+# pdf(".//results//figures//violinPlot_CV-HeLaStandards.pdf", height = 4, width = 1.5)
+# cvPlot
+# dev.off()
+
+
+cvPlot
+```
+
+# Summary
+
+A total of `r dim(data)[1]` unique proteins were reliably identified, resulting in a data matrix of *`r dim(data)[1]`* proteins and *`r (dim(data)[2] - sum(sapply(regexIDCols, function(x) sum(grepl(x, colnames(data))))))`* samples.
+
+Among these samples, there are `r sum(metadata$PatientLevelRisk == "HighRisk")` high-risk and `r sum(metadata$PatientLevelRisk == "LowRisk")` low-risk patients.
+
+Number of samples per patient:\
+`r paste(names(table(metadata$Patient)), table(metadata$Patient), sep=": ", collapse=", ")`.
+
+# Data Imputation
+
+```{r imputationKNN, echo=TRUE, message=FALSE, warning=FALSE, results='hide'}
+idCols <- grep(regexIDCols, colnames(data), value = TRUE)
+idData <- data[, idCols, drop = FALSE]
+
+numericCols <- grep(regexConditions, colnames(data), value = TRUE)
+numericCols <- numericCols[!grepl("_imp$", numericCols)]
+subData <- data[, numericCols, drop = FALSE]
+
+#Following code takes >1 hour to run, so I suggest to read the exported output (imputedFull)  
+
+# imputedNumeric <- VIM::kNN(subData, k = 5, imp_var = TRUE)
+# imputedFull <- cbind(idData, imputedNumeric)
+# 
+# fileName <- ".//results//data//dataFullyImputed-kNN_k=5.csv"
+# write.csv(imputedFull, file = fileName, row.names = FALSE)
+
+fileName <- ".//results//data//dataFullyImputed-kNN_k=5.csv"
+imputedFull <- read.csv(fileName)
+dataFullyImputed <- imputedFull[, !grepl("_imp$", colnames(imputedFull))]
+
+cat("Total imputed values:", 
+    sum(is.na(subData)), 
+    "out of", 
+    prod(dim(subData)), 
+    "(",round((sum(is.na(subData)))*100/(prod(dim(subData))), 2) , "%)", "\n")
+
+```
+
+# Data Visualization
+
+## PCA
+
+::: {.callout-note collapse="true"}
+# PCA
+
+Principal Component Analysis (PCA) is a statistical technique used to reduce the dimensionality of large datasets while preserving as much variability as possible. By transforming the original correlated variables into a smaller number of uncorrelated variables called principal components, PCA allows us to visualize patterns, trends, and differences among samples more easily.
+
+Each principal component is a linear combination of the original variables, and the first components capture the largest portion of the variance in the data. In proteomics, PCA is commonly used to assess overall sample similarity, detect outliers, and explore relationships between experimental conditions in an unbiased way.
+
+The explained variance of each component indicates how much of the total variability is captured, helping guide interpretation of the plots.
+
+PCA was calculated using log-10 transformed intensities.
+:::
+
+::: {.panel-tabset .nav-pills}
+#### Patient-Level Risk
+
+```{r PCAPatientLevel, echo=TRUE, message=FALSE, warning=FALSE,  fig.width=5.5, fig.height=4}
+rownames(dataFullyImputed) <- dataFullyImputed$PG.ProteinGroups
+numericData <- dataFullyImputed[, grepl(regexOR, colnames(dataFullyImputed))]
+numericDataLog10 <- log10(numericData)
+ 
+pcaResult <- prcomp(t(numericDataLog10), scale. = TRUE)
+pcaData <- as.data.frame(pcaResult$x[,c(1,2)])
+pcaData$Sample <- rownames(pcaData)
+pcaData <- merge(pcaData, metadata, by="Sample")
+explainedVariance <- round(100 * (pcaResult$sdev^2/sum(pcaResult$sdev^2)), 2)
+    
+pcaPlot_Patient <- ggplot(pcaData, aes(x = PC1, y = PC2, color = PatientLevelRisk, fill = PatientLevelRisk,)) + 
+            geom_point(size = 3) + 
+            labs(title = paste0("PCA (n proteins=", nrow(numericData), ")"), 
+                 x = paste0("PC1 (", explainedVariance[1],  "%)"), 
+                 y = paste0("PC2 (", explainedVariance[2],  "%)")) + 
+            scale_color_manual(values = c("HighRisk" = "#023047", 
+                                         "LowRisk" = "#2c7da0")) + 
+            theme_minimal()
+# pdf(".//results//figures//scatterPlot_PCA-PatientLevel.pdf", height = 4, width = 5)
+# pcaPlot_Patient
+# dev.off()
+
+pcaPlot_Patient
+```
+
+#### Patch-Level Risk
+
+```{r PCAPatchLevel, echo=TRUE, message=FALSE, warning=FALSE,  fig.width=5.5, fig.height=4}
+pcaPlot_Patch <- ggplot(pcaData, aes(x = PC1, y = PC2, color = PatchLevelRisk, fill = PatchLevelRisk,)) + 
+            geom_point(size = 3) + 
+            labs(title = paste0("PCA (n proteins=", nrow(numericData), ")"), 
+                 x = paste0("PC1 (", explainedVariance[1],  "%)"), 
+                 y = paste0("PC2 (", explainedVariance[2],  "%)")) + 
+            scale_color_manual(values = c("HighRisk" = "#023047", 
+                                         "LowRisk" = "#2c7da0")) + 
+            theme_minimal()
+
+
+
+# pdf(".//results//figures//scatterPlot_PCA-PatchLevel.pdf", height = 4, width = 5)
+# pcaPlot_Patch
+# dev.off()
+
+pcaPlot_Patch
+
+```
+:::
+
+## Heatmap with Hierarchical Clustering
+
+::: {.callout-note collapse="true"}
+# Hierarchical clustering
+
+Hierarchical clustering is a method used to group samples or features based on their similarity, creating a tree-like structure called a dendrogram. The process starts by treating each sample as an individual cluster and iteratively merges the closest clusters according to a defined distance metric, such as Euclidean or correlation distance.
+
+This technique allows the identification of natural groupings in the data and the visualization of relationships between samples or features. In proteomics, hierarchical clustering is commonly used to detect patterns of protein expression across conditions, highlight similarities between biological replicates, and identify potential outliers.
+
+Hierarchical clustering was performed using Euclidean distance of z-scored intensities.
+:::
+
+```{r hc, echo=TRUE, message=FALSE, warning=FALSE,  fig.width=12, fig.height=5}
+numericDataScaled <- t(scale(t(numericData)))
+
+annotationData <- data.frame(
+  `PatientLevelRisk` = metadata$PatientLevelRisk[match(colnames(numericData), metadata$Sample)],
+  # `PatchLevelRisk` = metadata$PatchLevelRisk[match(colnames(numericData), metadata$Sample)],
+  Slide = metadata$Slide[match(colnames(numericData), metadata$Sample)],
+  Patient = metadata$Patient[match(colnames(numericData), metadata$Sample)]
+)
+
+rownames(annotationData) <- colnames(numericDataScaled)
+annotationData$Slide <- factor(annotationData$Slide, levels = sort(unique(metadata$Slide)))
+
+
+annotationColors <- list(
+  `PatientLevelRisk` = setNames(c("#023047", "#2c7da0"), c("HighRisk", "LowRisk")),
+   # `PatchLevelRisk` = setNames(c("#023047", "#2c7da0"), c("HighRisk", "LowRisk")),
+  Slide = setNames(c("#F8766D", "#7CAE00", "#00BFC4", "#C77CFF"), sort(unique(metadata$Slide))),
+  Patient = setNames(c("red4", "orange","#34499E", "green4", "#2E86C1"),
+                     sort(unique(metadata$Patient))))
+
+
+heatmap <- pheatmap(
+  numericDataScaled,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  show_rownames = FALSE,
+  show_colnames = FALSE,
+  annotation_col = annotationData,
+  annotation_colors = annotationColors,
+  color = colorRampPalette(c("blue4","white","red4"))(100),
+   breaks = c(seq(min(numericDataScaled), 0, length.out = 50), seq(0.1, max(numericDataScaled), length.out = 50))
+)
+
+# pdf(".//results//figures//heatmap-PatientLevel.pdf", height = 5, width = 12)
+# heatmap
+# dev.off()
+# png(".//results//figures//heatmap-PatientLevel.png", 
+#     width = 12, height = 5, units = "in", res = 300)  
+# heatmap
+# dev.off()
+
+heatmap
+```
+
+# Functional Analysis
+
+::: {.callout-note collapse="true"}
+# Differential Expression (DE) Analysis
+
+Differential Analysis was performed with limma using the dataset in which only proteins completely missing in a condition were imputed with downshifted values, while all other proteins retained their NAs. This approach preserves the original missingness structure while detecting significant changes between conditions.
+:::
+
+::: {.callout-note collapse="true"}
+# Gene Ontology (GO) Analysis
+
+A GO enrichment analysis was performed to identify biological processes linked to Downregulated and Upregulated genes, using only the genes detected in the dataset. The Gene Ratio, representing the proportion of genes associated with each GO term, was calculated, and statistical significance was assessed with p-values (cutoff 0.01) and q-values (cutoff 0.05).
+:::
+
+## Patient-Level Risk Classification
+
+#### DE Analysis
+
+```{r VPPatientLevel, echo=TRUE, message=FALSE, warning=FALSE, fig.width=5, fig.height=5}
+#Run DE
+
+dataLimma <- dataFullyImputed[, metadata$Sample]
+metadata <- metadata[match(colnames(dataLimma), metadata$Sample), ]
+
+
+expDesign <- model.matrix(~metadata$PatientLevelRisk - 1)
+colnames(expDesign) <- sub("metadata\\$PatientLevelRisk", "", colnames(expDesign))
+fit <- lmFit(log2(dataLimma), expDesign)
+contrastMatrix <- makeContrasts(
+  HighRisk - LowRisk,
+  levels = expDesign
+)
+  
+fitContrast <- contrasts.fit(fit, contrastMatrix)
+fitContrast <- eBayes(fitContrast)
+dataLimma$pValue <- fitContrast[["p.value"]]
+dataLimma$log2FC <- fitContrast[["coefficients"]]
+dataLimma$log10FC <- log10(2^dataLimma$log2FC)
+dataLimma$FDR <- p.adjust(dataLimma$pValue, method = "fdr")
+dataLimma$log10qValue <- -log10(dataLimma$FDR)
+dataLimma <- dataLimma %>% mutate(Expression = case_when(log2FC <=  -1 & log10qValue > 1.3 ~ "Downregulated", 
+                                                           log2FC >=   1 & log10qValue > 1.3 ~ "Upregulated",
+                                                           TRUE ~ "Unchanged"))
+
+dataLimmaOnly <- dataLimma[, !grepl(regexConditions, colnames(dataLimma))]
+dataLimmaWithProtInfo <- cbind(dataFullyImputed[, grepl(regexIDCols, colnames(dataFullyImputed))], dataLimmaOnly)
+
+#Plot Volcano
+sizeMapping <- c(Upregulated = 2, Unchanged = 1, Downregulated = 2)
+presentSizes <- sizeMapping[names(sizeMapping) %in% unique(dataLimmaWithProtInfo$Expression)]
+colorMapping <- c(Upregulated = "#003566", 
+                  Unchanged = "gray30", 
+                  Downregulated = "#FF8C00")
+presentColors <- colorMapping[names(colorMapping) %in% unique(dataLimmaWithProtInfo$Expression)]
+contrastLabel <- colnames(contrastMatrix)
+selectedProteins <-c("VGF", "SERPINA3", "CD38") 
+
+volcanoPlot_Patient <- ggplot(dataLimmaWithProtInfo, aes(x = log2FC, y = log10qValue, fill = Expression,  size = Expression)) +
+        geom_point(shape = 21) + scale_fill_manual(values = presentColors) +
+        geom_point(data = subset(dataLimmaWithProtInfo,
+                   PG.Genes %in% selectedProteins &
+                    Expression %in% c("Upregulated", "Downregulated")),
+        aes(x = log2FC, y = log10qValue),
+        shape = 21,
+        size = 4,
+        stroke = 0.6
+      ) +
+        scale_size_manual(values = presentSizes) + 
+        geom_vline(xintercept = c(-1, 1), linetype = "dashed", colour = "gray40") + 
+        geom_hline(yintercept = 1.3, linetype = "dashed", colour = "gray40") + 
+        labs(x = bquote(log[2] ~ "FC (" * .(contrastLabel) * ")"), 
+             y = expression("-log"[10] ~ "q-value"), 
+             title = paste0(contrastLabel, " (Patient-level)")) + 
+        ggrepel::geom_label_repel(aes(label = ifelse(PG.Genes %in% selectedProteins & 
+                       Expression %in% c("Upregulated", "Downregulated"), as.character(PG.Genes), "")),
+                        size = 3,
+                        fill = scales::alpha("white", 0.1),
+                        colour = "black",
+                        label.size = 0.2,
+                        max.overlaps = Inf)+
+        theme_classic()
+fileName <- ".//results//data//differentialAnalysisLimma_HRvsLRatPatientLevel.csv"
+write.csv(dataLimmaWithProtInfo, fileName, row.names = FALSE)
+dataLimmaPatientLevel <- dataLimmaWithProtInfo
+
+# pdf(".//results//figures//volcanoPlot-PatientLevel.pdf", height = 5, width = 5)
+# volcanoPlot_Patient
+# dev.off()
+
+volcanoPlot_Patient
+        
+
+
+```
+
+#### GO Analysis
+
+```{r GOPatientLevel, echo=TRUE, message=FALSE, warning=FALSE, fig.width=10, fig.height=5}
+
+allGenes <- unique(sub("^([^;]+);?.*", "\\1", data$PG.Genes))
+
+dataGO <- dataLimmaWithProtInfo %>% mutate(Gene = sub("^([^;]+);?.*",  "\\1", PG.Genes))
+underGenes <- unique(dataGO$Gene[dataGO$Expression ==   "Downregulated"])
+overGenes <- unique(dataGO$Gene[dataGO$Expression ==   "Upregulated"])
+
+runGO <- function(genes, groupLabel, universe, ont) {  
+ego <- enrichGO(gene = genes, 
+                universe = universe, 
+                OrgDb = "org.Hs.eg.db",
+                keyType = "SYMBOL", 
+                ont = ont, 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.01, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+
+    if (is.null(ego) || nrow(ego) == 0) 
+      return(NULL)
+    as.data.frame(ego) %>% slice_min(order_by = p.adjust, 
+      n = 10) %>% mutate(group = groupLabel)}
+
+dfUnder <- runGO(underGenes, "Downregulated", allGenes, "BP")
+dfOver <- runGO(overGenes, "Upregulated", allGenes, "BP")
+  
+dfCombined <- bind_rows(dfUnder, dfOver) %>% 
+              mutate(GeneRatioNum = sapply(strsplit(GeneRatio, "/"), 
+                                           function(x) as.numeric(x[1])/as.numeric(x[2])), 
+                    GeneRatioNum = ifelse(group == "Downregulated", -GeneRatioNum, GeneRatioNum))
+
+topTerms <- dfCombined %>% group_by(Description) %>% 
+            slice_min(order_by = p.adjust, n = 1)  %>% 
+            ungroup() %>% 
+            slice_max(order_by = abs(GeneRatioNum), n = 20)
+
+
+dfPlot <- dfCombined %>% 
+          filter(Description %in% topTerms$Description) %>% 
+          mutate(Description = fct_reorder(Description, GeneRatioNum))
+
+Go_Patient <- ggplot(dfPlot, aes(x = GeneRatioNum, y = Description, fill = group)) + 
+    geom_col() + 
+    geom_text(aes(label = sprintf("p=%.2g", p.adjust), 
+                  hjust = ifelse(GeneRatioNum > 0, -0.1, 1.1)), size = 2.5) + 
+    scale_x_continuous(labels = abs) + 
+    labs(title = "GO Analysis at Patient-Level", 
+         subtitle = paste("Ontology: Biological Processes"), 
+         x = "Gene Ratio", y = NULL) + 
+    xlim(min(dfPlot$GeneRatioNum)*2, max(dfPlot$GeneRatioNum)*2)+
+    scale_fill_manual(values = c(Downregulated = "#FF8C00", Upregulated = "#003566")) + 
+    theme_minimal(base_size = 14) + 
+    theme(legend.title = element_blank())
+
+# pdf(".//results//figures//barplot-GOPatientLevel.pdf", height = 5, width = 10)
+# Go_Patient
+# dev.off()
+
+Go_Patient
+```
+
+## Patch-Level Risk Classification
+
+#### DE Analysis
+
+```{r VPPatchLevel, echo=TRUE, message=FALSE, warning=FALSE, fig.width=5, fig.height=5}
+#Run DE
+dataLimma <- dataFullyImputed[, metadata$Sample]
+metadata <- metadata[match(colnames(dataLimma), metadata$Sample), ]
+
+
+expDesign <- model.matrix(~metadata$PatchLevelRisk - 1)
+colnames(expDesign) <- sub("metadata\\$PatchLevelRisk", "", colnames(expDesign))
+fit <- lmFit(log2(dataLimma), expDesign)
+contrastMatrix <- makeContrasts(
+  HighRisk - LowRisk,
+  levels = expDesign
+)
+  
+fitContrast <- contrasts.fit(fit, contrastMatrix)
+fitContrast <- eBayes(fitContrast)
+dataLimma$pValue <- fitContrast[["p.value"]]
+dataLimma$log2FC <- fitContrast[["coefficients"]]
+dataLimma$log10FC <- log10(2^dataLimma$log2FC)
+dataLimma$FDR <- p.adjust(dataLimma$pValue, method = "fdr")
+dataLimma$log10qValue <- -log10(dataLimma$FDR)
+dataLimma <- dataLimma %>% mutate(Expression = case_when(log2FC <=  -1 & log10qValue > 1.3 ~ "Downregulated", 
+                                                           log2FC >=   1 & log10qValue > 1.3 ~ "Upregulated",
+                                                           TRUE ~ "Unchanged"))
+
+dataLimmaOnly <- dataLimma[, !grepl(regexConditions, colnames(dataLimma))]
+dataLimmaWithProtInfo <- cbind(dataFullyImputed[, grepl(regexIDCols, colnames(dataFullyImputed))], dataLimmaOnly)
+
+#Plot Volcano
+sizeMapping <- c(Upregulated = 2, Unchanged = 1, Downregulated = 2)
+presentSizes <- sizeMapping[names(sizeMapping) %in% unique(dataLimmaWithProtInfo$Expression)]
+colorMapping <- c(Upregulated = "#003566", Unchanged = "gray30", Downregulated = "#FF8C00")
+presentColors <- colorMapping[names(colorMapping) %in% unique(dataLimmaWithProtInfo$Expression)]
+contrastLabel <- colnames(contrastMatrix)
+
+volcanoPlot_Patch <- ggplot(dataLimmaWithProtInfo, aes(x = log2FC, y = log10qValue, fill = Expression,  size = Expression)) +
+        geom_point(shape = 21) + scale_fill_manual(values = presentColors) + 
+        geom_point(data = subset(dataLimmaWithProtInfo,
+                   PG.Genes %in% selectedProteins),
+        aes(x = log2FC, y = log10qValue),
+        shape = 21,
+        size = 4,
+        stroke = 0.6
+      ) +
+        scale_size_manual(values = presentSizes) + 
+        geom_vline(xintercept = c(-1, 1), linetype = "dashed", colour = "gray40") + 
+        geom_hline(yintercept = 1.3, linetype = "dashed", colour = "gray40") + 
+        labs(x = bquote(log[2] ~ "FC (" * .(contrastLabel) * ")"), 
+             y = expression("-log"[10] ~ "q-value"), 
+             title = paste0(contrastLabel, " (Patch-level)")) + 
+        ggrepel::geom_label_repel(aes(label = ifelse(PG.Genes %in% selectedProteins, as.character(PG.Genes), "")),
+                        size = 3,
+                        fill = scales::alpha("white", 0.1),
+                        colour = "black",
+                        label.size = 0.2,
+                        max.overlaps = Inf)+
+        theme_classic()
+  
+
+        
+fileName <- "results//data//differentialAnalysisLimma_HRvsLRatPatchLevel.csv"
+write.csv(dataLimmaWithProtInfo, fileName, row.names = FALSE)
+dataLimmaPatchLevel <- dataLimmaWithProtInfo
+
+# pdf(".//results//figures//volcanoPlot-PatchLevel.pdf", height = 5, width = 5)
+# volcanoPlot_Patch
+# dev.off()
+
+
+volcanoPlot_Patch
+
+```
+
+#### GO Analysis
+
+```{r GOPatchLevel,, echo=TRUE, message=FALSE, warning=FALSE, fig.width=10, fig.height=5}
+
+allGenes <- unique(sub("^([^;]+);?.*", "\\1", data$PG.Genes))
+
+dataGO <- dataLimmaWithProtInfo %>% mutate(Gene = sub("^([^;]+);?.*",  "\\1", PG.Genes))
+underGenes <- unique(dataGO$Gene[dataGO$Expression ==   "Downregulated"])
+overGenes <- unique(dataGO$Gene[dataGO$Expression ==   "Upregulated"])
+
+runGO <- function(genes, groupLabel, universe, ont) {  
+ego <- enrichGO(gene = genes, 
+                universe = universe, 
+                OrgDb = "org.Hs.eg.db",
+                keyType = "SYMBOL", 
+                ont = ont, 
+                pAdjustMethod = "BH", 
+                pvalueCutoff = 0.01, 
+                qvalueCutoff = 0.05, 
+                readable = TRUE)
+
+    if (is.null(ego) || nrow(ego) == 0) 
+      return(NULL)
+    as.data.frame(ego) %>% slice_min(order_by = p.adjust, 
+      n = 10) %>% mutate(group = groupLabel)}
+
+dfUnder <- runGO(underGenes, "Downregulated", allGenes, "BP")
+dfOver <- runGO(overGenes, "Upregulated", allGenes, "BP")
+  
+dfCombined <- bind_rows(dfUnder, dfOver) %>% 
+              mutate(GeneRatioNum = sapply(strsplit(GeneRatio, "/"), 
+                                           function(x) as.numeric(x[1])/as.numeric(x[2])), 
+                    GeneRatioNum = ifelse(group == "Downregulated", -GeneRatioNum, GeneRatioNum))
+
+topTerms <- dfCombined %>% group_by(Description) %>% 
+            slice_min(order_by = p.adjust, n = 1)  %>% 
+            ungroup() %>% 
+            slice_max(order_by = abs(GeneRatioNum), n = 20)
+
+
+dfPlot <- dfCombined %>% 
+          filter(Description %in% topTerms$Description) %>% 
+          mutate(Description = fct_reorder(Description, GeneRatioNum))
+
+Go_Patch <- ggplot(dfPlot, aes(x = GeneRatioNum, y = Description, fill = group)) + 
+    geom_col() + 
+    geom_text(aes(label = sprintf("p=%.2g", p.adjust), 
+                  hjust = ifelse(GeneRatioNum > 0, -0.1, 1.1)), size = 2.5) + 
+    scale_x_continuous(labels = abs) + 
+    labs(title = "GO Analysis at Patch-Level", 
+         subtitle = paste("Ontology: Biological Processes"), 
+         x = "Gene Ratio", y = NULL) + 
+    xlim(min(dfPlot$GeneRatioNum)*1.5, max(dfPlot$GeneRatioNum)*2)+
+    scale_fill_manual(values = c(Downregulated = "#FF8C00", Upregulated = "#003566")) + 
+    theme_minimal(base_size = 14) + 
+    theme(legend.title = element_blank())
+
+# pdf(".//results//figures//barplot-GOPatchLevel.pdf", height = 5, width = 10)
+# Go_Patch
+# dev.off()
+
+Go_Patch
+
+```
+
+## Individual Protein Exploration
+
+```{r boxplots, echo=TRUE, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
+longDataImp <- melt(
+  dataFullyImputed,
+  id.vars = grep(regexIDCols, colnames(data), value = TRUE),
+  measure.vars = grep("^Slide", colnames(data), value = TRUE),
+  variable.name = "Sample",
+  value.name = "Intensity"
+)
+longDataImp <- merge(longDataImp, metadata, by="Sample")
+
+longDataImp$PatientLevelRisk <- factor(longDataImp$PatientLevelRisk, levels = c("HighRisk", "LowRisk"))
+longDataImp$PatchLevelRisk <- factor(longDataImp$PatchLevelRisk, levels = c("HighRisk", "LowRisk"))
+longDataImp <- longDataImp[!(is.na(longDataImp$Intensity)),]
+
+
+genes <- c("VGF", "SERPINA3", "CD38")
+for(gene in genes){
+
+filteredData <-  longDataImp %>%
+  filter(PG.Genes == gene)
+filteredData$log10Intensity <- log10(filteredData$Intensity)
+
+##Patient Level
+#Extract p value and log2FC
+pValue <- with(dataLimmaPatientLevel[dataLimmaPatientLevel$PG.Genes == gene, ], pValue[which.min(abs(pValue))])
+pValue <- ifelse(abs(pValue) < 1e-3 | abs(pValue) >= 1e3,
+                 signif(pValue, 3),
+                 round(pValue, 3))
+log2fc <- {x <- as.numeric(dataLimmaPatientLevel$log2FC[dataLimmaPatientLevel$PG.Genes == gene]); x[which.max(abs(x))]}
+
+label <- paste0("log2FC: ", round(log2fc, 2), "\n",
+                "p-value: ", pValue)
+
+plotPatientLevel <- ggplot(filteredData, aes(x = PatientLevelRisk, y = log10Intensity, fill = PatientLevelRisk)) +
+  geom_boxplot(alpha = 0.6, outliers = FALSE) +
+  geom_jitter(width = 0.3, alpha = 1, aes( color = PatientLevelRisk), show.legend = FALSE) +
+  scale_fill_manual(name ="Condition", values = c("HighRisk" = "#023047", "LowRisk" = "#2c7da0")) +
+  scale_color_manual(values = c("HighRisk" ="#023047"  , "LowRisk" = "#2c7da0")) +
+  labs(
+      # title =paste0(gene),
+       subtitle= "Patient-level",
+       x="",
+       y="Protein Intensity (log10)") +
+  theme_minimal() +
+  ylim(min(filteredData$log10Intensity), max(filteredData$log10Intensity)+0.3)+
+  theme(
+    plot.subtitle = element_text(hjust = 0.5, size = 14, color = "black",face = "bold",
+    axis.title.x = element_blank())
+  )+
+  annotate("text", x = 1.5, y  = max(filteredData$log10Intensity+0.2, na.rm = TRUE), 
+           label = label, size = 3)
+
+##Patient Level
+#Extract p value and log2FC
+
+pValue <- with(dataLimmaPatchLevel[dataLimmaPatchLevel$PG.Genes == gene, ], pValue[which.min(abs(pValue))])
+pValue <- ifelse(abs(pValue) < 1e-3 | abs(pValue) >= 1e3,
+                 signif(pValue, 3),
+                 round(pValue, 3))
+
+log2fc <- {x <- as.numeric(dataLimmaPatchLevel$log2FC[dataLimmaPatchLevel$PG.Genes == gene]); x[which.max(abs(x))]}
+
+label <- paste0("log2FC: ", round(log2fc, 2), "\n",
+                "p-value: ", pValue)
+
+
+plotPatchLevel <- ggplot(filteredData, aes(x = PatchLevelRisk, y = log10Intensity, fill = PatchLevelRisk)) +
+  geom_boxplot(alpha = 0.6, outliers = FALSE) +
+  geom_jitter(width = 0.3, alpha = 1, aes( color = PatchLevelRisk), show.legend = FALSE)+
+  scale_fill_manual(name ="Condition", values = c("HighRisk" = "#023047", "LowRisk" = "#2c7da0")) +
+  scale_color_manual(values = c("HighRisk" ="#023047"  , "LowRisk" = "#2c7da0")) +
+  labs(
+        # title =paste0(gene),
+       subtitle= "Patch-level") +
+  theme_minimal() +
+  ylim(min(filteredData$log10Intensity), max(filteredData$log10Intensity)+0.3)+
+  theme(
+    plot.subtitle = element_text(hjust = 0.5, size = 14, color = "black",face = "bold"),
+    axis.ticks.y = element_blank(), 
+    axis.text.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.title.x = element_blank()
+  )+
+  annotate("text", x = 1.5, y  = max(filteredData$log10Intensity+0.2, na.rm = TRUE), 
+           label = label, size = 3)
+
+
+
+pdf(paste0(".//results//figures//boxplot-",gene,"-Patient+PatchLevel.pdf"), height = 4, width = 7)
+
+print((plotPatientLevel | plotPatchLevel) +
+  plot_layout(guides = "collect") +
+  plot_annotation(title = gene) &
+  theme(plot.title = element_text(size = 22, face = "bold", hjust = 0.5)))
+
+dev.off()
+
+print((plotPatientLevel | plotPatchLevel) +
+  plot_layout(guides = "collect") +
+  plot_annotation(title = gene) &
+  theme(plot.title = element_text(size = 22, face = "bold", hjust = 0.5)))
+
+}
+
+```
+
+# Session Information
+
+<details>
+
+<summary>Click to expand</summary>
+
+```{r, echo= FALSE}
+sessionInfo()
+endTime <- Sys.time()
+duration <- difftime(endTime, startTime, units = "mins")
+cat(sprintf("Notebook completed in %.1f minutes", duration))
+cat("Created and executed by: Agustina Conrrero")
+```
+
+</details>
