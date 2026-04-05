@@ -2,7 +2,7 @@ Integrative AI profiling redefines risk in infiltrating gliomas
 ===========
 <details>
 <summary>
-  <b>Integrative AI profiling redefines risk in infiltrating gliomas</b>, JOURNAL.
+  <b>Integrative AI profiling redefines risk in infiltrating gliomas </b>, JOURNAL.
   <a href="link" target="blank">[HTML]</a>
   <br><em>Katherine Rich, Karina C. Martin, Thomas Roetzer-Pejrimovsky, Kira Tosefsky, Verena Goebeler, Agustina Conrrero, Lesley Hill, Pouya Ahmadvand, Crystal Ma, Hossein Farahani, Steven JM Jones, Michael Underhill, Adelheid Woehrer, Philipp F. Lange, Stephen Yip, Ali Bashashati</em></br>
 </summary>
